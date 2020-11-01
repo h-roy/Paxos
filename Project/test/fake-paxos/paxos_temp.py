@@ -92,9 +92,9 @@ class proposer():
             msg = message()
             m = r.recv(2**16)
             msg.convert_to_dict(m)
-            self.recv_msg(msg)
+            self.process_message(msg)
 
-    def recv_msg(self, message):
+    def process_message(self, message):
 
         s = mcast_sender()
         instance = int(message.message['instance'])
@@ -213,9 +213,9 @@ class acceptor():
             msg = message()
             m = r.recv(2**16)
             msg.convert_to_dict(m)
-            self.recv_msg(msg)
+            self.process_message(msg)
 
-    def recv_msg(self, message):
+    def process_message(self, message):
 
         s = mcast_sender()
         instance = int(message.message['instance'])
@@ -282,9 +282,9 @@ class learner():
             msg = message()
             m = r.recv(2**16)
             msg.convert_to_dict(m)
-            self.recv_msg(msg)
+            self.process_message(msg)
 
-    def recv_msg(self, message):
+    def process_message(self, message):
 
         s = mcast_sender()
         instance = int(message.message['instance'])
@@ -294,6 +294,8 @@ class learner():
         if phase == '3':
             if instance > 0 and instance > self.instance_number:
                 self.instance_number = instance
+
+
 
 
 
