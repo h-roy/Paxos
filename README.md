@@ -1,0 +1,2 @@
+# Paxos
+Distributed Algorithms Project
