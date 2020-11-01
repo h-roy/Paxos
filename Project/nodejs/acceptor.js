@@ -1,0 +1,1 @@
+console.log("hello from acceptor", process.argv[2]);
