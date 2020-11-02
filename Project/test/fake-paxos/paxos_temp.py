@@ -81,6 +81,8 @@ class proposer():
         self.id = id
         self.instance_number = 0
         self.num_acceptors = 3
+        self.instance_updated = False
+        self.catch_up_counter = 0
 
 
 
@@ -94,9 +96,23 @@ class proposer():
             msg.convert_to_dict(m)
             self.process_message(msg)
 
+    def catch_up_instance(self, instance):
+
+        s = mcast_sender()
+        message_catchup = message()
+        message_catchup['instance'] = instance
+        message_catchup['phase'] = 'catch up'
+        message_catchup['content'] = {'role': 'proposer'}
+        message_catchup = message_catchup.convert_to_bytes()
+        s.sendto(message_catchup, config['acceptors'])
+
+
+
+
     def process_message(self, message):
 
         s = mcast_sender()
+        s2 = mcast_sender()
         instance = int(message.message['instance'])
         phase = message.message['phase']
         content = message.message['content']
@@ -118,6 +134,9 @@ class proposer():
                                                         'quorum2B': 0}
             # Request for an old instance: Not clear yet ---
 
+            if not self.instance_updated:
+                self.catch_up_instance(self.instance_number)
+
 
             self.state[self.instance_number]['v'] = message.message['content']['value']
 
@@ -137,6 +156,38 @@ class proposer():
             message_1A['content'] = {'c-rnd': c_rnd}
             message_1A = message_1A.convert_to_bytes()
             s.sendto(message_1A, config['acceptors'])
+
+        if phase == 'catch up':
+            sender_instance = content['instance number']
+            if self.instance_updated:
+                if sender_instance > self.instance_number:
+                    self.instance_number = sender_instance
+            else:
+                self.catch_up_counter += 1
+                if sender_instance > self.instance_number:
+                    self.instance_number = sender_instance
+                if self.catch_up_counter == math.ceil((self.num_acceptors + 1) / 2):
+                    self.catch_up_counter = 0
+                    self.instance_updated = True
+                    print_stuff("Instance updated")
+
+    """        for i in range(0, self.instance_number + 1):
+                if i not in self.states:
+                    message_catchup = message()
+                    message_catchup['instance'] = i
+                    message_catchup['phase'] = 'proposer request'
+                    message_catchup['content'] = {}
+                    message_catchup = message_catchup.convert_to_bytes()
+                    s2.sendto(message_catchup, config['proposers'])
+
+        if phase == 'proposer request':
+            if instance in self.states:
+                message_proposer_update = message()
+                message_proposer_update['phase'] = 'proposer update'
+                message_proposer_update['instance']"""
+
+        
+
 
 
         if phase == '1B':
@@ -189,9 +240,10 @@ class proposer():
 
 
 
-        #if phase == 'DECISION':
 
-            #Update states
+        if phase == 'DECISION':
+
+
 
         #if phase == 'catch_up':
 
@@ -258,9 +310,19 @@ class acceptor():
                 message_2B = message_2B.convert_to_bytes()
                 s.sendto(message_2B, config['proposers'])
 
-        #if phase == 'catch_up':
+        if phase == 'catch up':
 
-            #Catch up
+            role = content['role']
+            message_catchup = message()
+            message_catchup['instance'] = instance
+            message_catchup['phase'] = 'catch up'
+            message_2B['content'] = {'instance number': instance_number}
+            message_catchup = message_catchup.convert_to_bytes()
+            if role == 'proposer':
+                s.sendto(message_catchup, config['proposers'])
+            elif role == 'learner':
+                s.sendto(message_catchup, config['learners'])
+
 
        #if phase == '3'
 
@@ -301,12 +363,6 @@ class learner():
             self.states[instance]['v'] = content['c-val']
             print(content['c-val'])
             sys.stdout.flush()
-
-
-
-
-
-
 
 
 
