@@ -295,6 +295,13 @@ class learner():
             if instance > 0 and instance > self.instance_number:
                 self.instance_number = instance
 
+            if instance not in self.states:
+                self.states[instance] = {'v': None}
+
+            self.states[instance]['v'] = content['c-val']
+            print(content['c-val'])
+            sys.stdout.flush()
+
 
 
 
