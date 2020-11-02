@@ -153,6 +153,7 @@ class proposer():
             # message_1A['instance'] = instance
 
             message_1A['phase'] = '1A'
+            message_1A['instance'] = self.instance_number
             message_1A['content'] = {'c-rnd': c_rnd}
             message_1A = message_1A.convert_to_bytes()
             s.sendto(message_1A, config['acceptors'])
@@ -186,7 +187,7 @@ class proposer():
                 message_proposer_update['phase'] = 'proposer update'
                 message_proposer_update['instance']"""
 
-        
+
 
 
 
