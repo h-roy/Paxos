@@ -89,6 +89,7 @@ class proposer_class(Thread):
         else:
             self.leader = False
 
+        self.val_buffer = []
 
 
     def run(self):
@@ -121,12 +122,10 @@ class proposer_class(Thread):
                                                     'quorum2B': 0, 'decided': False}
 
             #self.form_consensus()
-
             if self.leader == True:
                 message_1A = message_class(instance = self.instance_number,phase = '1A' , content = {'c-rnd': self.states[self.instance_number]['c-rnd']})
                 message_1A = message_1A.convert_to_bytes()
                 s.sendto(message_1A, config['acceptors'])
-
 
 
         if phase == '1B':
@@ -168,7 +167,6 @@ class proposer_class(Thread):
                     #print('1B Fail')
 
 
-
         if phase == '2B':
             #Send Phase 3 message
             if self.leader == True:
@@ -184,7 +182,8 @@ class proposer_class(Thread):
                     if self.states[instance]['quorum2B'] >= math.ceil((self.num_acceptors+1) / 2):
                         print('Consenseus!')
                         self.states[instance]['quorum2B'] = 0
-                        message_3 = message_class(instance, '3', {'c-rnd': c_rnd, 'c-val': c_val})
+                        self.val_buffer.append(c_val)
+                        message_3 = message_class(instance, '3', {'c-rnd': c_rnd, 'c-val': c_val, 'val_buffer':self.val_buffer})
                         message_3 = message_3.convert_to_bytes()
                         print('sending phase 3 message')
                         s.sendto(message_3, config['acceptors'])
@@ -196,8 +195,6 @@ class proposer_class(Thread):
                     message_1A = message_1A.convert_to_bytes()
                     s.sendto(message_1A, config['acceptors'])
                     #print('2B fail')
-
-
 
 
         if phase == '3':
@@ -242,11 +239,11 @@ class acceptor_class(Thread):
         if phase == '1A':
             c_rnd = content['c-rnd']
 
-
             #print('c_rnd, rnd:', (c_rnd, rnd))
             if c_rnd >= self.states[instance]['rnd']:
                 self.states[instance]['rnd'] = c_rnd
                 message_1B = message_class(instance, '1B', {'rnd': self.states[instance]['rnd'], 'v-rnd': self.states[instance]['v-rnd'], 'v-val': self.states[instance]['v-val']})
+
                 message_1B = message_1B.convert_to_bytes()
                 s.sendto(message_1B, config['proposers'])
             else:
@@ -286,6 +283,8 @@ class learner_class(Thread):
         self.id = id
         self.instance_number = 0
 
+        self.val_buffer = []
+
 
     def run(self):
 
@@ -310,11 +309,16 @@ class learner_class(Thread):
                 self.instance_number = instance
 
             if instance not in self.states:
-                self.states[instance] = {'v': None}
+                self.states[instance] = {'val_buffer': []}
 
-            self.states[instance]['v'] = content['c-val']
-            print(content['c-val'])
-            sys.stdout.flush()
+            val_buffer_recieved = content['val_buffer']
+
+            self.states[instance]['val_buffer'] = list(set(val_buffer_recieved) - set(self.val_buffer))
+            self.val_buffer = val_buffer_recieved
+            for val in self.states[instance]['val_buffer']:
+                print(val)
+                sys.stdout.flush()
+
 
 
 
