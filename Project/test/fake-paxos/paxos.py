@@ -4,6 +4,7 @@ import socket
 import struct
 import math
 import pickle
+from threading import Thread
 
 
 def mcast_receiver(hostport):
@@ -34,7 +35,7 @@ def parse_cfg(cfgpath):
 
 # ----------------------------------------------------
 
-class message():
+class message_class():
 
     def __init__(self, instance = None, phase = None, content = None):
 
@@ -50,7 +51,7 @@ class message():
 
 
 
-class client_class():
+class client_class(Thread):
 
     def __init__(self, config, id):
 
@@ -64,26 +65,29 @@ class client_class():
         while True:
             for value in sys.stdin:
               value = value.strip()
-              print("client: sending %s to proposers" % (value))
-              msg = message()
-              msg.message['instance'] = 'NOT KNOWN' #Keep a counter with for loop
-              msg.message['phase'] = 'CLIENT REQUEST'
-              msg.message['content'] = {'value': value}
+              msg = message_class(-1, 'CLIENT REQUEST', {'value': value})
               client_msg = msg.convert_to_bytes()
               s.sendto(client_msg, config['proposers'])
               print('client done.')
 
 
-class proposer_class():
+class proposer_class(Thread):
+
+    #Proposer with id=1 is leader
 
     def __init__(self, config, id):
-        self.state ={}
+        self.states ={}
         self.instance = -1
         self.id = id
         self.instance_number = 0
         self.num_acceptors = 3
         self.instance_updated = False
         self.catch_up_counter = 0
+        self.max_proposers = 1000
+        if self.id == 1:
+            self.leader = True
+        else:
+            self.leader = False
 
 
 
@@ -92,158 +96,110 @@ class proposer_class():
         print('-> proposer', id)
         r = mcast_receiver(config['proposers'])
         while True:
-            msg = message()
+            msg = message_class()
             m = r.recv(2**16)
             msg.convert_to_dict(m)
             self.process_message(msg)
-
-    def catch_up_instance(self, instance):
-
-        s = mcast_sender()
-        message_catchup = message()
-        message_catchup['instance'] = instance
-        message_catchup['phase'] = 'catch up'
-        message_catchup['content'] = {'role': 'proposer'}
-        message_catchup = message_catchup.convert_to_bytes()
-        s.sendto(message_catchup, config['acceptors'])
-
-
 
 
     def process_message(self, message):
 
         s = mcast_sender()
-        s2 = mcast_sender()
         instance = int(message.message['instance'])
         phase = message.message['phase']
         content = message.message['content']
 
-        #Update state for a generic message
-        if instance > 0 and instance not in self.state:
-            self.state[int(message.message['instance'])] = {'c-rnd': self.id, 'c-val': None,
-                                          'v': None, 'v-rnd': 0,
-                                          'v-val': 0, 'quorum1B': 0,
-                                          'quorum2B': 0}
+
+
 
         if phase == 'CLIENT REQUEST':
-            #Update State if the phase is client request
+            #Update States if the phase is client request
             self.instance_number += 1
-            if self.instance_number not in self.states:
-                self.state[self.instance_number] = {'c-rnd': self.id, 'c-val': None,
-                                                        'v': None, 'v-rnd': 0,
-                                                        'v-val': 0, 'quorum1B': 0,
-                                                        'quorum2B': 0}
-            # Request for an old instance: Not clear yet ---
+            self.states[self.instance_number] = {'c-rnd': self.id, 'c-val': None,
+                                                    'v': content['value'], 'v-rnd': 0,
+                                                    'v-val': 0, 'quorum1B': 0,
+                                                    'quorum2B': 0, 'decided': False}
 
-            if not self.instance_updated:
-                self.catch_up_instance(self.instance_number)
+            #self.form_consensus()
 
 
-            self.state[self.instance_number]['v'] = message.message['content']['value']
-
-            #Update instance ---
-
-            self.states[self.instance_number]['c-rnd'] = self.states[num_instance]['c-rnd'] + self.max_proposers
-
-            #Send Phase 1A message
-            #shouldn't be instance but something else
-            c_rnd = self.state[int(instance)]['c-rnd']
-            message_1A = message()
-
-            # Figure out how to handle the instance
-            # message_1A['instance'] = instance
-
-            message_1A['phase'] = '1A'
-            message_1A['instance'] = self.instance_number
-            message_1A['content'] = {'c-rnd': c_rnd}
+            message_1A = message_class(instance = self.instance_number,phase = '1A' , content = {'c-rnd': self.states[self.instance_number]['c-rnd']})
             message_1A = message_1A.convert_to_bytes()
             s.sendto(message_1A, config['acceptors'])
 
-        if phase == 'catch up':
-            sender_instance = content['instance number']
-            if self.instance_updated:
-                if sender_instance > self.instance_number:
-                    self.instance_number = sender_instance
-            else:
-                self.catch_up_counter += 1
-                if sender_instance > self.instance_number:
-                    self.instance_number = sender_instance
-                if self.catch_up_counter == math.ceil((self.num_acceptors + 1) / 2):
-                    self.catch_up_counter = 0
-                    self.instance_updated = True
-                    print_stuff("Instance updated")
 
 
         if phase == '1B':
             #Send Phase 2A message
-            rnd = content['rnd']
-            v_rnd = content['v-rnd']
-            v_val = content['v-val']
-            c_rnd = self.states[int(instance)]['c-rnd']
-            c_val = self.states[int(instance)]['c-val']
-            if rnd == self.states[instance]['c-rnd']:
-                self.states[instance]['quorum1B'] += 1
-            if v_rnd >= self.states[instance]['v_rnd']:
-                self.states[instance]['v-rnd'] = v_rnd
-                self.states[instance]['v-val'] = v_val
+            if content != 'FAIL!':
+                rnd = content['rnd']
+                v_rnd = content['v-rnd']
+                v_val = content['v-val']
+                c_rnd = self.states[int(instance)]['c-rnd']
+                c_val = self.states[int(instance)]['c-val']
+                if rnd == self.states[instance]['c-rnd']:
+                    self.states[instance]['quorum1B'] += 1
+                if v_rnd >= self.states[instance]['v-rnd']:
+                    self.states[instance]['v-rnd'] = v_rnd
+                    self.states[instance]['v-val'] = v_val
 
-            if self.states[instance]['quorum1B'] >= math.ceil((self.num_acceptors+1) / 2):
-                self.states[instance]['quorum1B'] = 0
-                if self.states[instance]['v-rnd'] == 0:
-                    self.states[instance]['c-val'] = self.states[instance]['v']
-                    c_val = self.states[instance]['c-val']
+                if self.states[instance]['quorum1B'] >= math.ceil((self.num_acceptors+1) / 2):
+                    self.states[instance]['quorum1B'] = 0
+                    if self.states[instance]['v-rnd'] == 0:
+                        self.states[instance]['c-val'] = self.states[instance]['v']
+                        c_val = self.states[instance]['c-val']
+                    else:
+                        self.states[instance]['c-val'] = self.states[instance]['v-val']
+                        c_val = self.states[instance]['c-val']
+                    message_2A = message_class(instance, '2A', {'c-rnd': c_rnd, 'c-val': c_val})
+                    message_2A = message_2A.convert_to_bytes()
+                    s.sendto(message_2A, config['acceptors'])
                 else:
-                    self.states[instance]['c-val'] = self.states[instance]['v-val']
-                    c_val = self.states[instance]['c-val']
-                message_2A = message()
-                message_2A['instance'] = instance
-                message_2A['phase'] = '2A'
-                message_2A['content'] = {'c-rnd': c_rnd, 'c-val': c_val}
-                message_2A = message_2A.convert_to_bytes()
-                s.sendto(message_2A, config['acceptors'])
+                    self.states[instance]['c-rnd'] += self.max_proposers
+                    print(self.states[instance]['c-rnd'])
+                    message_1A = message_class(instance = instance ,phase = '1A' , content = {'c-rnd': self.states[instance]['c-rnd']})
+                    message_1A = message_1A.convert_to_bytes()
+                    s.sendto(message_1A, config['acceptors'])
+
 
 
         if phase == '2B':
             #Send Phase 3 message
-            rnd = content['rnd']
-            v_rnd = content['v-rnd']
-            v_val = content['v-val']
-            c_rnd = self.states[int(instance)]['c-rnd']
-            c_val = self.states[int(instance)]['c-val']
-            if v_rnd == c_rnd:
-                self.states[instance]['quorum2B'] += 1
-            if self.states[instance]['quorum2B'] >= math.ceil((self.num_acceptors+1) / 2):
-                self.states[instance]['quorum2B'] = 0
-                message_3 = message()
-                message_3['instance'] = instance
-                message_3['phase'] = '3'
-                message_3['content'] = {'c-rnd': c_rnd, 'c-val': c_val}
-                message_3 = message_3.convert_to_bytes()
-                s.sendto(message_3, config['acceptors'])
-                s.sendto(message_3, config['learners'])
+            print('recieved 2b sending 3')
+            if content != 'FAIL!':
+                rnd = content['rnd']
+                v_rnd = content['v-rnd']
+                v_val = content['v-val']
+                c_rnd = self.states[int(instance)]['c-rnd']
+                c_val = self.states[int(instance)]['c-val']
+                if v_rnd == c_rnd:
+                    self.states[instance]['quorum2B'] += 1
+                if self.states[instance]['quorum2B'] >= math.ceil((self.num_acceptors+1) / 2):
+                    print('Consenseus!')
+                    self.states[instance]['quorum2B'] = 0
+                    message_3 = message_class(instance, '3', {'c-rnd': c_rnd, 'c-val': c_val})
+                    message_3 = message_3.convert_to_bytes()
+                    print('sending phase 3 message')
+                    s.sendto(message_3, config['acceptors'])
+                    s.sendto(message_3, config['learners'])
+            else:
+                print('2B Failed')
 
 
 
 
         if phase == '3':
-            if instance not in self.state:
-                self.state[instance] = {'c-rnd': self.id, 'c-val': None,
+            if instance not in self.states:
+                self.states[instance] = {'c-rnd': self.id, 'c-val': None,
                                               'v': None, 'v-rnd': 0,
                                               'v-val': 0, 'quorum1B': 0,
                                               'quorum2B': 0}
 
 
 
-
-
-        #if phase == 'catch_up':
-
-            #Catch up Learners
-
-
-class acceptor_class():
+class acceptor_class(Thread):
     def __init__(self, config, id):
-        self.state ={}
+        self.states ={}
         self.instance = -1
         self.id = id
         self.instance_number = 0
@@ -253,7 +209,7 @@ class acceptor_class():
         print('-> acceptor', id)
         r = mcast_receiver(config['acceptors'])
         while True:
-            msg = message()
+            msg = message_class()
             m = r.recv(2**16)
             msg.convert_to_dict(m)
             self.process_message(msg)
@@ -265,63 +221,56 @@ class acceptor_class():
         phase = message.message['phase']
         content = message.message['content']
 
-        if instance > 0 and instance not in self.states:
+        if instance not in self.states:
             self.states[instance] = {"rnd": 0, "v-rnd": 0, "v-val": None}
 
-        if instance > 0 and instance > self.instance_number:
-            self.instance_number = instances
+        if instance > self.instance_number:
+            self.instance_number = instance
 
         if phase == '1A':
             c_rnd = content['c-rnd']
+
             rnd = self.states[instance]['rnd']
             v_rnd = self.states[instance]['v-rnd']
             v_val = self.states[instance]['v-val']
             if c_rnd >= self.states[instance]['rnd']:
                 self.states[instance]['rnd'] = c_rnd
-                message_1B = message()
-                message_1B['instance'] = instance
-                message_1B['phase'] = '1B'
-                message_1B['content'] = {'rnd': rnd, 'v-rnd': v_rnd, 'v-val': v_val}
+                message_1B = message_class(instance, '1B', {'rnd': rnd, 'v-rnd': v_rnd, 'v-val': v_val})
                 message_1B = message_1B.convert_to_bytes()
                 s.sendto(message_1B, config['proposers'])
+            else:
+                message_1B = message_class(instance, '1B', 'FAIL!')
+                message_1B = message_1B.convert_to_bytes()
+                s.sendto(message_1B, config['proposers'])
+
         if phase == '2A':
+
             c_rnd = content['c-rnd']
             c_val = content['c-val']
             rnd = self.states[instance]['rnd']
-
+            print('2A, rnd, c-rnd:', (self.id, rnd, c_rnd))
             if c_rnd >= rnd:
+                print('recieved 2a - send 2B')
                 self.states[instance]['v-rnd'] = c_rnd
                 self.states[instance]['v-val'] = c_val
                 v_rnd = self.states[instance]['v-rnd']
                 v_val = self.states[instance]['v-val']
-                message_2B = message()
-                message_2B['instance'] = instance
-                message_2B['phase'] = '2B'
-                message_2B['content'] = {'rnd': rnd, 'v-rnd': v_rnd, 'v-val': v_val}
+                message_2B = message_class(instance, '2B', {'rnd': rnd, 'v-rnd': v_rnd, 'v-val': v_val})
                 message_2B = message_2B.convert_to_bytes()
                 s.sendto(message_2B, config['proposers'])
-
-        if phase == 'catch up':
-
-            role = content['role']
-            message_catchup = message()
-            message_catchup['instance'] = instance
-            message_catchup['phase'] = 'catch up'
-            message_2B['content'] = {'instance number': instance_number}
-            message_catchup = message_catchup.convert_to_bytes()
-            if role == 'proposer':
-                s.sendto(message_catchup, config['proposers'])
-            elif role == 'learner':
-                s.sendto(message_catchup, config['learners'])
+            else:
+                message_2B = message_class(instance, '2B', 'FAIL!')
+                message_2B = message_2B.convert_to_bytes()
+                s.sendto(message_2B, config['proposers'])
 
 
        #if phase == '3'
 
 
-class learner_class():
+class learner_class(Thread):
 
     def __init__(self, config, id):
-        self.state ={}
+        self.states ={}
         self.instance = -1
         self.id = id
         self.instance_number = 0
@@ -332,7 +281,8 @@ class learner_class():
         print('-> learner', id)
         r = mcast_receiver(config['learners'])
         while True:
-            msg = message()
+            print('learner received')
+            msg = message_class()
             m = r.recv(2**16)
             msg.convert_to_dict(m)
             self.process_message(msg)
