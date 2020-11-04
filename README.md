@@ -1,6 +1,4 @@
-# Paxos
-
-## Distributed Algorithms Project
+# Distributed Algorithms: Paxos 
 
 ## Running the code
 
