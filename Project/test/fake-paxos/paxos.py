@@ -10,7 +10,7 @@ import time
 
 
 num_acceptors_global = 3
-kill_acceptor_at_instance = None # or set it to n if you want to kill acceptors at instance n
+kill_acceptor_at_instance = None # or set it to n if you want to kill acceptors at instance n. If this is None acceptors are not killed.
 kill_acceptor_id = [3]
 
 def mcast_receiver(hostport):
