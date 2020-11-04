@@ -1,2 +1,5 @@
-# Paxos
+### Paxos
 Distributed Algorithms Project
+
+
+
