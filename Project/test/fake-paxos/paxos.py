@@ -11,7 +11,7 @@ import time
 
 num_acceptors_global = 3
 kill_acceptor_at_instance = 50 # or None if you dont want to kill
-kill_acceptor_id = [3]
+kill_acceptor_id = []
 
 def mcast_receiver(hostport):
 	"""create a multicast socket listening to the address"""
@@ -71,8 +71,9 @@ class client_class(Thread):
 		i = 0
 		for value in sys.stdin:
 			i += 1
-			if i%15==0:
-				time.sleep(0.1)
+			if i%17==0:
+				time.sleep(0.20)
+
 			value = value.strip()
 			msg = message_class(-1, 'CLIENT REQUEST', {'value': value})
 			client_msg = msg.convert_to_bytes()
@@ -96,6 +97,8 @@ class proposer_class(Thread):
 			self.leader = True
 		else:
 			self.leader = False
+
+		self.val_buffer = []
 
 		global num_acceptors_global
 
@@ -193,7 +196,9 @@ class proposer_class(Thread):
 					if self.states[instance]['quorum2B'] == math.ceil((num_acceptors_global+1) / 2):
 						print('Consenseus!', instance)
 						self.states[instance]['quorum2B'] = 0
-						message_3 = message_class(instance, '3', {'c-rnd': c_rnd, 'c-val': c_val})
+						self.val_buffer.append(c_val)
+						message_3 = message_class(instance, '3', {'c-rnd': c_rnd, 'c-val': c_val, 'val_buffer':self.val_buffer})
+						# message_3 = message_class(instance, '3', {'c-rnd': c_rnd, 'c-val': c_val})
 						message_3 = message_3.convert_to_bytes()
 						# print('sending phase 3 message')
 						s.sendto(message_3, config['learners'])
@@ -300,19 +305,16 @@ class acceptor_class(Thread):
 				s.sendto(message_2B, config['proposers'])
 
 
-
-
 class learner_class(Thread):
-
 	def __init__(self, config, id):
 		self.states ={}
 		self.instance = -1
 		self.id = id
 		self.instance_number = 0
 		#self.catch_up_learner()
+		self.val_buffer = [-1]
 
 	#def catch_up_learner(self):
-
 
 
 	def run(self):
@@ -337,14 +339,28 @@ class learner_class(Thread):
 			if instance > 0 and instance > self.instance_number:
 				self.instance_number = instance
 
+			# if instance not in self.states:
+			# 	self.states[instance] = {'v': None}
+
+			# self.states[instance]['v'] = content['c-val']
+			# print(content['c-val'])
+			# sys.stdout.flush()
+
 			if instance not in self.states:
 				self.states[instance] = {'v': None}
+				self.states[instance] = {'val_buffer_diff': []}
 
-			self.states[instance]['v'] = content['c-val']
-			print(content['c-val'])
-			sys.stdout.flush()
-
-
+			if self.val_buffer[0] == content['val_buffer'][0]:
+				self.states[instance]['v'] = content['c-val']
+				print(content['c-val'])
+				sys.stdout.flush()
+			else:
+				val_buffer_recieved = content['val_buffer']
+				self.states[instance]['val_buffer_diff'] = list(set(val_buffer_recieved) - set(self.val_buffer))
+				self.val_buffer = val_buffer_recieved
+				for val in self.states[instance]['val_buffer_diff']:
+					print(val)
+					sys.stdout.flush()
 
 
 # ----------------------------------------------------
