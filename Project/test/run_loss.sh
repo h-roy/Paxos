@@ -6,6 +6,7 @@ LOSS=0.1
 projdir="$1"
 conf=`pwd`/paxos.conf
 n="$2"
+t = "$3"
 
 if [[ x$projdir == "x" || x$n == "x" ]]; then
 	echo "Usage: $0 <project dir> <number of values per proposer>"
@@ -49,7 +50,7 @@ echo "starting clients..."
 ./client.sh 1 $conf < ../prop1 &
 ./client.sh 2 $conf < ../prop2 &
 
-sleep 80
+sleep $t
 
 $KILLCMD
 wait
