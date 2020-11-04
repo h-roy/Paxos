@@ -1,8 +1,4 @@
-FROM ubuntu:18.04
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y sudo iptables
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common python3.8 python3-pip
+FROM python:3.8
 
 # Create work directory
 WORKDIR /app
@@ -11,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # install dependencies
-RUN pip3 install -r requirements.txt
+RUN pip install -r requirements.txt
 
 # Get the role and id of the process from env
 ENV APP_ROLE ''
@@ -21,3 +17,4 @@ ENV ID ''
 COPY . .
 
 # command to run on container start
+CMD python ./paxos.py ${APP_ROLE} ${ID}
